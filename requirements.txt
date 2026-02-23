@@ -1,0 +1,4 @@
+mkdocs==1.6.1
+mkdocs-plantuml==0.1.1
+plantuml_markdown==3.11.1
+mkdocs_puml==2.3.0
