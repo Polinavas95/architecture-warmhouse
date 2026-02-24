@@ -3,18 +3,21 @@ title Микросервис отопления - Ключевые классы 
 
 ' === Основные сущности ===
 class HeatingDevice {
+    - house_id: UUID
     - device_id: UUID
     - owner_id: UUID
     - device_type: DeviceType
     - room: String
     - current_temperature: float
+    - target_temperature: float
     - status: DeviceStatus
     - firmware_version: String
-    + update_target_temperature(temp: float)
+    - settings: DeviceSettings
+    + set_target_temperature(temp: float)
     + switch_on()
     + switch_off()
     + get_status(): DeviceStatus
-    + apply_settings(settings: DeviceSettings)
+    + update_settings(settings: DeviceSettings)
 }
 
 enum DeviceType {
@@ -67,9 +70,25 @@ class TemperatureReading {
     - device_id: UUID
     - temperature: float
     - timestamp: DateTime
-    - is_anomaly: boolean
+    - is_anomaly: boolean  // true если температура вне нормы
     + mark_as_anomaly()
     + get_reading_info(): ReadingInfo
+}
+
+class ReadingInfo {
+    - reading_id: UUID
+    - device_id: UUID
+    - temperature: float
+    - timestamp: DateTime
+    - anomaly_score: float
+    - trend: TrendType
+    + get_summary(): String
+}
+
+enum TrendType {
+    RISING
+    FALLING
+    STABLE
 }
 
 class HeatingCommand {
@@ -79,16 +98,17 @@ class HeatingCommand {
     - parameters: Map<String, Object>
     - timestamp: DateTime
     - status: CommandStatus
+    - executed_by: UUID  // кто выполнил (пользователь или система)
     + execute()
     + validate(): boolean
     + get_result(): CommandResult
 }
 
 enum CommandType {
-    SET_TEMPERATURE
-    TURN_ON
-    TURN_OFF
-    GET_STATUS
+    SET_TEMPERATURE  // установка температуры
+    TURN_ON          // включить
+    TURN_OFF         // выключить
+    GET_STATUS       // получить статус
 }
 
 enum CommandStatus {
@@ -99,14 +119,35 @@ enum CommandStatus {
     TIMEOUT
 }
 
+class CommandResult {
+    - command_id: UUID
+    - success: boolean
+    - message: String
+    - data: Map<String, Object>
+    - execution_time_ms: long
+    + was_successful(): boolean
+    + get_data(): Map
+}
+
 ' === Сервисы ===
 class DeviceManager {
     - devices: Map<UUID, HeatingDevice>
     - device_cache: RedisClient
     + get_device(device_id: UUID): HeatingDevice
-    + update_device_state(device_id: UUID, state: DeviceState)
+    + update_device_state(device_id: UUID, new_state: DeviceStatus, new_temp: float)
     + get_all_user_devices(owner_id: UUID): List<HeatingDevice>
-    + cache_device_state(device_id: UUID, value: Any)
+    + cache_device_state(device_id: UUID, state_data: Map)
+    + invalidate_cache(device_id: UUID)
+}
+
+class DeviceState {
+    - device_id: UUID
+    - status: DeviceStatus
+    - current_temperature: float
+    - target_temperature: float
+    - last_seen: DateTime
+    - battery_level: int
+    + is_online(): boolean
 }
 
 class CommandProcessor {
@@ -122,6 +163,25 @@ class TemperatureAnalyzer {
     + analyze_reading(reading: TemperatureReading): AnalysisResult
     + detect_anomalies(readings: List<TemperatureReading>): List<TemperatureReading>
     + calculate_statistics(device_id: UUID, period: TimePeriod): TemperatureStats
+}
+
+class AnalysisResult {
+    - reading_id: UUID
+    - is_anomaly: boolean
+    - confidence: float
+    - suggested_action: String
+    + get_recommendation(): String
+}
+
+class TemperatureStats {
+    - device_id: UUID
+    - period_start: DateTime
+    - period_end: DateTime
+    - avg_temperature: float
+    - min_temperature: float
+    - max_temperature: float
+    - readings_count: int
+    + get_summary(): String
 }
 
 class MQTTGateway {
@@ -150,23 +210,35 @@ class ReadingRepository {
 }
 
 ' === Связи ===
-HeatingDevice "1" -- "many" TemperatureReading : generates
-HeatingDevice "1" -- "many" HeatingCommand : receives
+HeatingDevice "1" -- "1" DeviceSettings : +has
+HeatingDevice "1" -- "many" TemperatureReading : +generates
+HeatingDevice "1" -- "many" HeatingCommand : +receives
+HeatingDevice "1" -- "1" ScheduleConfig : +may have
 
-DeviceManager --> HeatingDevice : manages
-DeviceManager --> DeviceRepository : uses
-DeviceManager --> HeatingDevice : caches in
+ScheduleConfig "1" -- "many" ScheduleRule : +contains
 
-CommandProcessor --> DeviceManager : delegates to
-CommandProcessor --> HeatingCommand : processes
+DeviceSettings --> ScheduleConfig : +uses
 
-TemperatureAnalyzer --> TemperatureReading : analyzes
-TemperatureAnalyzer --> HeatingDevice : monitors
+TemperatureReading "1" -- "1" ReadingInfo : +can be converted to
 
-MQTTGateway --> HeatingCommand : sends as
-MQTTGateway --> TemperatureReading : creates from
+HeatingCommand "1" -- "1" CommandResult : +produces
 
-DeviceRepository --> HeatingDevice : persists
-ReadingRepository --> TemperatureReading : persists
+DeviceManager --> HeatingDevice : +manages
+DeviceManager --> DeviceRepository : +uses for persistence
+DeviceManager --> DeviceState : +creates/updates
+
+CommandProcessor --> DeviceManager : +delegates to
+CommandProcessor --> HeatingCommand : +processes
+
+TemperatureAnalyzer --> TemperatureReading : +analyzes
+TemperatureAnalyzer --> HeatingDevice : +monitors
+TemperatureAnalyzer --> AnalysisResult : +creates
+TemperatureAnalyzer --> TemperatureStats : +calculates
+
+MQTTGateway --> HeatingCommand : +sends as
+MQTTGateway --> TemperatureReading : +creates from telemetry
+
+DeviceRepository --> HeatingDevice : +persists
+ReadingRepository --> TemperatureReading : +persists
 
 @enduml

@@ -16,72 +16,69 @@ participant "БД PostgreSQL" as DB
 participant "Event Publisher" as EventPub
 participant "Message Queue" as Kafka
 
+== Шаг 1: Первичная аутентификация ==
+
 User -> WebApp: Вводит телефон и пароль
 WebApp -> APIGateway: POST /api/auth/login\n{phone: "+79161234567", password: "***"}
-APIGateway -> AuthCtrl: Маршрутизация
+APIGateway -> AuthCtrl: Маршрутизация запроса
 
 activate AuthCtrl
 AuthCtrl -> AuthSvc: authenticate(phone, password)
 
 activate AuthSvc
 AuthSvc -> UserRepo: find_by_phone(phone)
+
 activate UserRepo
 UserRepo -> DB: SELECT * FROM users WHERE phone = ?
 activate DB
 DB --> UserRepo: UserData(hashed_password, 2fa_enabled=true)
 deactivate DB
-UserRepo --> AuthSvc: User
+UserRepo --> AuthSvc: User(hashed_password, 2fa_enabled)
 deactivate UserRepo
 
 AuthSvc -> Hasher: check_password(password, hashed_password)
 activate Hasher
-Hasher --> AuthSvc: true
+Hasher --> AuthSvc: true (пароль верный)
 deactivate Hasher
 
-AuthSvc -> TwoFA: generate_code(user_id)
-activate TwoFA
-TwoFA -> TwoFA: create_2fa_code(6 digits)
-TwoFA --> AuthSvc: code: "123456"
-deactivate TwoFA
+alt 2FA включена
+    AuthSvc -> TwoFA: generate_code(user_id)
+    activate TwoFA
+    TwoFA -> TwoFA: create_2fa_code(6 digits)
+    TwoFA --> AuthSvc: code: "123456"
+    deactivate TwoFA
 
-AuthSvc -> SMSAdapter: send_sms(phone, "Your code: 123456")
-activate SMSAdapter
-SMSAdapter -> SMSGW: HTTP POST /send-sms
-activate SMSGW
-SMSGW --> SMSAdapter: 200 OK
-deactivate SMSGW
-SMSAdapter --> AuthSvc: sent
-deactivate SMSAdapter
+    AuthSvc -> SMSAdapter: send_sms(phone, "Ваш код: 123456")
+    activate SMSAdapter
+    SMSAdapter -> SMSGW: HTTP POST /send-sms
+    activate SMSGW
+    SMSGW --> SMSAdapter: 200 OK (SMS отправлено)
+    deactivate SMSGW
+    SMSAdapter --> AuthSvc: sent
+    deactivate SMSAdapter
 
-AuthSvc --> AuthCtrl: 2FA_REQUIRED
-deactivate AuthSvc
+    AuthSvc --> AuthCtrl: 2FA_REQUIRED
+    deactivate AuthSvc
 
-AuthCtrl --> APIGateway: 202 Accepted\n{status: "2fa_required"}
+    AuthCtrl --> APIGateway: 202 Accepted\n{status: "2fa_required", message: "Требуется подтверждение"}
+    APIGateway --> WebApp: Response
+    WebApp --> User: Запрос 2FA кода
+
+else 2FA выключена
+    AuthSvc -> TokenMgr: generate_token(user_id, role)
+    activate TokenMgr
+    TokenMgr --> AuthSvc: JWT: "eyJhbGci..."
+    deactivate TokenMgr
+
+    AuthSvc --> AuthCtrl: AuthSuccess(token, user_data)
+    deactivate AuthSvc
+
+    AuthCtrl --> APIGateway: 200 OK\n{token: "JWT...", user: {...}}
+    APIGateway --> WebApp: Response
+    WebApp --> User: Вход выполнен (перенаправление в кабинет)
+end
+
 APIGateway --> WebApp: Response
-WebApp --> User: Запрос 2FA кода
-
-User -> WebApp: Вводит код "123456"
-WebApp -> APIGateway: POST /api/auth/verify-2fa\n{code: "123456"}
-APIGateway -> AuthCtrl: verify_2fa(code)
-
-activate AuthCtrl
-AuthCtrl -> TwoFA: verify_code(user_id, code)
-activate TwoFA
-TwoFA --> AuthCtrl: true
-deactivate TwoFA
-
-AuthCtrl -> TokenMgr: generate_token(user_id, role)
-activate TokenMgr
-TokenMgr --> AuthCtrl: JWT: "eyJhbGci..."
-deactivate TokenMgr
-
-AuthCtrl -> EventPub: publish_event(LOGIN_SUCCESS, user_id)
-activate EventPub
-EventPub -> Kafka: send(topic=auth-events, event)
-deactivate EventPub
-
-AuthCtrl --> APIGateway: 200 OK\n{token: "JWT...", user: {...}}
-APIGateway --> WebApp: Response
-WebApp --> User: Перенаправляет в личный кабинет
+WebApp --> User: Отображает результат (успех/ошибка)
 
 @enduml
