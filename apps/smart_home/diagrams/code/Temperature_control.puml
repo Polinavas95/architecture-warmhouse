@@ -1,0 +1,76 @@
+@startuml
+title Регулировка температуры - Диаграмма последовательности
+
+actor "Владелец дома" as User
+participant "Мобильное приложение" as MobileApp
+participant "API Gateway" as APIGateway
+participant "API Controller" as APIController
+participant "Command Handler" as CmdHandler
+participant "Device Manager" as DevManager
+participant "Device Registry" as DevRegistry
+participant "MQTT Adapter" as MQTT
+participant "Устройство отопления" as Heater
+participant "Event Publisher" as EventPub
+participant "БД Redis" as Redis
+participant "Message Queue" as Kafka
+
+User -> MobileApp: Передвигает ползунок температуры\n(установить 22°C)
+MobileApp -> APIGateway: POST /api/heating/command\n{device_id: 123, temp: 22}
+APIGateway -> APIController: Маршрутизация запроса
+
+activate APIController
+APIController -> APIController: Валидация входных данных
+APIController -> CmdHandler: create_command(device_id, temp)
+
+activate CmdHandler
+CmdHandler -> DevRegistry: get_device_info(device_id)
+activate DevRegistry
+DevRegistry --> CmdHandler: DeviceInfo(тип, настройки)
+deactivate DevRegistry
+
+CmdHandler -> DevManager: get_current_state(device_id)
+activate DevManager
+DevManager -> Redis: get(device_id:state)
+activate Redis
+Redis --> DevManager: current_state(21°C, ON)
+deactivate Redis
+DevManager --> CmdHandler: current_state
+deactivate DevManager
+
+CmdHandler -> CmdHandler: validate_command()
+CmdHandler -> MQTT: send_command(device_id, SET_TEMP, 22)
+
+activate MQTT
+MQTT -> Heater: MQTT: home/123/set_temp [22]
+deactivate MQTT
+
+Heater -> Heater: Устанавливает температуру
+Heater -> MQTT: MQTT: home/123/telemetry [temp=22, status=ok]
+
+activate MQTT
+MQTT -> CmdHandler: on_command_ack(device_id, SUCCESS)
+deactivate MQTT
+
+CmdHandler -> DevManager: update_state(device_id, temp=22)
+activate DevManager
+DevManager -> Redis: set(device_id:state, temp=22)
+activate Redis
+Redis --> DevManager: OK
+deactivate Redis
+DevManager --> CmdHandler: state_updated
+deactivate DevManager
+
+CmdHandler -> EventPub: publish_event(device_id, TEMP_CHANGED, 22)
+
+activate EventPub
+EventPub -> Kafka: send(topic=heating-events, event)
+deactivate EventPub
+
+CmdHandler --> APIController: CommandResult(success, new_temp=22)
+deactivate CmdHandler
+
+APIController --> APIGateway: 200 OK {status: "updated", temp: 22}
+APIGateway --> MobileApp: Response
+MobileApp --> User: Отображает 22°C
+
+@enduml

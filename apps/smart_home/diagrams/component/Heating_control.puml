@@ -1,0 +1,68 @@
+@startuml
+!include <C4/C4_Component>
+!include <C4/C4_Context>
+
+title Микросервис управления отоплением (Диаграмма компонентов)
+
+' === Внешние пользователи и сущности ===
+Person(owner, "Владелец дома", "Управляет отоплением через приложение")
+System_Ext(heater, "Устройства отопления", "Датчики-термостаты, котлы")
+
+Container(api_gw, "API Gateway", "Nginx", "Маршрутизация запросов")
+ContainerDb(heating_db, "БД отопления", "Redis", "Хранение состояния")
+Container(message_queue, "Message Queue", "Kafka", "События для администрирования")
+Container(admin_svc, "Микросервис администрирования", "Java", "Сбор логов и метрик, диагностика, первичное подключение")
+
+' === Граница микросервиса отопления ===
+Boundary(heating_svc, "Микросервис отопления") {
+
+    Component(api_controller, "API Controller", "FastAPI Routes", "Принимает HTTP/gRPC запросы от API Gateway, валидирует входные данные, проверяет права доступа")
+    Component(websocket_handler, "WebSocket Handler", "FastAPI WebSockets", "Обрабатывает соединения в режиме реального времени для мониторинга температуры")
+    Component(command_handler, "Command Handler", "Python", "Обрабатывает команды (вкл/выкл, установка температуры)")
+    Component(query_handler, "Query Handler", "Python", "Обрабатывает запросы на получение данных (текущая температура, статус)")
+    Component(temp_monitor, "Temperature Monitor", "Python", "Фоновый процесс, анализирует показатели температуры, выявляет аномалии")
+    Component(device_manager, "Device State Manager", "Python", "Управляет состоянием устройств, кэширует данные в Redis")
+    Component(mqtt_adapter, "MQTT Adapter", "Python MQTT Client", "Отправляет команды устройствам, получает телеметрию через MQTT")
+    Component(device_registry, "Device Registry", "Python", "Хранит информацию об устройствах клиента (тип, настройки)")
+    Component(event_publisher, "Event Publisher", "Kafka Producer", "Публикует события (аварии, изменения статуса) в очередь сообщений")
+    Component(metrics_collector, "Metrics Collector", "Prometheus", "Собирает метрики для микросервиса администрирования")
+    Component(redis_client, "Redis Client", "Redis Python", "Доступ к базе данных Redis")
+}
+
+' === Связи: Входящие запросы ===
+Rel(owner, api_gw, "Отправляет команды", "HTTPS/WSS")
+Rel(api_gw, api_controller, "Маршрут /api/heating/*", "HTTP/gRPC")
+Rel(api_gw, websocket_handler, "WebSocket /ws/heating/*", "WSS")
+
+' === Связи: Внутри микросервиса ===
+Rel(api_controller, command_handler, "Передает команды", "sync/async")
+Rel(api_controller, query_handler, "Передает запросы", "sync/async")
+Rel(websocket_handler, temp_monitor, "Подписывается на обновления", "async")
+
+Rel(command_handler, device_manager, "Обновляет состояние", "method call")
+Rel(query_handler, device_manager, "Читает состояние", "method call")
+Rel(temp_monitor, device_manager, "Получает данные для анализа", "method call")
+
+Rel(command_handler, device_registry, "Проверяет настройки устройства", "method call")
+Rel(query_handler, device_registry, "Получает информацию об устройстве", "method call")
+
+Rel(device_manager, redis_client, "Сохраняет/читает состояние", "Redis Protocol")
+Rel(device_registry, redis_client, "Сохраняет/читает настройки", "Redis Protocol")
+
+Rel(command_handler, mqtt_adapter, "Отправляет команду устройству", "async")
+Rel(mqtt_adapter, heater, "Передает команду", "MQTT")
+Rel(heater, mqtt_adapter, "Отправляет телеметрию", "MQTT")
+Rel(mqtt_adapter, temp_monitor, "Передает телеметрию", "async")
+
+Rel(temp_monitor, event_publisher, "Публикует аномалии", "async")
+Rel(command_handler, event_publisher, "Публикует события команд", "async")
+Rel(event_publisher, message_queue, "Отправляет события", "Kafka Protocol")
+
+Rel(metrics_collector, admin_svc, "Передает метрики", "Prometheus HTTP")
+Rel(api_controller, metrics_collector, "Обновляет счетчики", "method call")
+Rel(command_handler, metrics_collector, "Обновляет счетчики", "method call")
+
+' === Связи: База данных ===
+Rel(redis_client, heating_db, "Читает/пишет данные", "Redis Protocol")
+
+@enduml

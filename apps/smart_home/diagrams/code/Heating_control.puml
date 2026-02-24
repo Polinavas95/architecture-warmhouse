@@ -1,0 +1,172 @@
+@startuml
+title Микросервис отопления - Ключевые классы (Domain Model)
+
+' === Основные сущности ===
+class HeatingDevice {
+    - device_id: UUID
+    - owner_id: UUID
+    - device_type: DeviceType
+    - room: String
+    - current_temperature: float
+    - status: DeviceStatus
+    - firmware_version: String
+    + update_target_temperature(temp: float)
+    + switch_on()
+    + switch_off()
+    + get_status(): DeviceStatus
+    + apply_settings(settings: DeviceSettings)
+}
+
+enum DeviceType {
+    THERMOSTAT  // Термостат (управляет другими устройствами)
+    BOILER      // Котел
+    HEATER      // Нагреватель (батарея, конвектор)
+}
+
+enum DeviceStatus {
+    ON          // Включено
+    OFF         // Выключено
+    ERROR       // Ошибка
+    MAINTENANCE // На обслуживании
+    OFFLINE     // Нет соединения
+}
+
+class DeviceSettings {
+    - settings_id: UUID
+    - device_id: UUID
+    - min_temperature: float
+    - max_temperature: float
+    - auto_off_enabled: boolean
+    - notifications_enabled: boolean
+    - schedule: ScheduleConfig
+    + validate_settings(): boolean
+    + apply_defaults()
+}
+
+class ScheduleConfig {
+    - schedule_id: UUID
+    - device_id: UUID
+    - timezone: String
+    - rules: List<ScheduleRule>
+    + add_rule(rule: ScheduleRule)
+    + remove_rule(rule_id: UUID)
+    + get_active_rule(time: DateTime): ScheduleRule
+}
+
+class ScheduleRule {
+    - rule_id: UUID
+    - days_of_week: List<DayOfWeek>
+    - start_time: Time
+    - end_time: Time
+    - target_temperature: float
+    + is_active(day: DayOfWeek, time: Time): boolean
+}
+
+class TemperatureReading {
+    - reading_id: UUID
+    - device_id: UUID
+    - temperature: float
+    - timestamp: DateTime
+    - is_anomaly: boolean
+    + mark_as_anomaly()
+    + get_reading_info(): ReadingInfo
+}
+
+class HeatingCommand {
+    - command_id: UUID
+    - device_id: UUID
+    - command_type: CommandType
+    - parameters: Map<String, Object>
+    - timestamp: DateTime
+    - status: CommandStatus
+    + execute()
+    + validate(): boolean
+    + get_result(): CommandResult
+}
+
+enum CommandType {
+    SET_TEMPERATURE
+    TURN_ON
+    TURN_OFF
+    GET_STATUS
+}
+
+enum CommandStatus {
+    PENDING
+    EXECUTING
+    COMPLETED
+    FAILED
+    TIMEOUT
+}
+
+' === Сервисы ===
+class DeviceManager {
+    - devices: Map<UUID, HeatingDevice>
+    - device_cache: RedisClient
+    + get_device(device_id: UUID): HeatingDevice
+    + update_device_state(device_id: UUID, state: DeviceState)
+    + get_all_user_devices(owner_id: UUID): List<HeatingDevice>
+    + cache_device_state(device_id: UUID, value: Any)
+}
+
+class CommandProcessor {
+    - command_queue: Queue<HeatingCommand>
+    - device_manager: DeviceManager
+    + process_command(command: HeatingCommand): CommandResult
+    + validate_command(command: HeatingCommand): boolean
+}
+
+class TemperatureAnalyzer {
+    - readings: List<TemperatureReading>
+    - anomaly_threshold: float
+    + analyze_reading(reading: TemperatureReading): AnalysisResult
+    + detect_anomalies(readings: List<TemperatureReading>): List<TemperatureReading>
+    + calculate_statistics(device_id: UUID, period: TimePeriod): TemperatureStats
+}
+
+class MQTTGateway {
+    - mqtt_client: MQTTClient
+    - topic_prefix: String
+    + send_command(device_id: UUID, command: HeatingCommand)
+    + subscribe_to_device(device_id: UUID)
+    + handle_incoming_message(topic: String, payload: bytes)
+    + parse_telemetry(payload: bytes): TemperatureReading
+}
+
+' === Репозитории ===
+class DeviceRepository {
+    + find_by_id(device_id: UUID): Optional<HeatingDevice>
+    + find_by_owner(owner_id: UUID): List<HeatingDevice>
+    + save(device: HeatingDevice)
+    + update(device: HeatingDevice)
+    + delete(device_id: UUID)
+}
+
+class ReadingRepository {
+    + save_reading(reading: TemperatureReading)
+    + find_readings(device_id: UUID, from: DateTime, to: DateTime): List<TemperatureReading>
+    + find_anomalies(device_id: UUID): List<TemperatureReading>
+    + get_latest_reading(device_id: UUID): Optional<TemperatureReading>
+}
+
+' === Связи ===
+HeatingDevice "1" -- "many" TemperatureReading : generates
+HeatingDevice "1" -- "many" HeatingCommand : receives
+
+DeviceManager --> HeatingDevice : manages
+DeviceManager --> DeviceRepository : uses
+DeviceManager --> HeatingDevice : caches in
+
+CommandProcessor --> DeviceManager : delegates to
+CommandProcessor --> HeatingCommand : processes
+
+TemperatureAnalyzer --> TemperatureReading : analyzes
+TemperatureAnalyzer --> HeatingDevice : monitors
+
+MQTTGateway --> HeatingCommand : sends as
+MQTTGateway --> TemperatureReading : creates from
+
+DeviceRepository --> HeatingDevice : persists
+ReadingRepository --> TemperatureReading : persists
+
+@enduml

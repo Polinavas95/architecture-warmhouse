@@ -1,0 +1,76 @@
+@startuml
+!include <C4/C4_Component>
+!include <C4/C4_Context>
+
+title Микросервис пользователей (Диаграмма компонентов)
+
+' === Внешние сущности ===
+Person(owner, "Владелец дома", "Регистрируется в системе, общается с поддержкой, читает новости, смотрит видео-инструкции по установке")
+Person(customer_service, "Обслуживание клиентов", "Отвечает в чате поддержки/ на звонки")
+System_Ext(sms, "SMS-шлюз", "Отправка кодов подтверждения")
+System_Ext(messenger, "Мессенджер", "Чат поддержки")
+System_Ext(phone_system, "Телефонная станция", "Звонки в поддержку")
+
+Container(api_gw, "API Gateway", "Nginx", "Маршрутизация запросов")
+ContainerDb(users_db, "БД пользователей", "PostgreSQL", "Хранение учетных записей")
+Container(message_queue, "Message Queue", "Kafka", "События для администрирования")
+
+Boundary(users_svc, "Микросервис пользователей") {
+
+    Component(auth_controller, "Auth Controller", "Django REST API", "Регистрация, вход, выход, обновление токенов")
+    Component(profile_controller, "Profile Controller", "Django REST API", "Управление профилем, настройками, устройствами")
+    Component(chat_controller, "Chat Controller", "Django Channels", "WebSocket для чата с поддержкой")
+    Component(registration_service, "Registration Service", "Python", "Обработка регистрации, валидация email/телефона")
+    Component(authentication_service, "Authentication Service", "Python", "Проверка учетных данных, генерация JWT")
+    Component(profile_service, "Profile Service", "Python", "Управление данными профиля, настройками уведомлений")
+    Component(chat_service, "Chat Service", "Python", "Логика чата, история сообщений, маршрутизация к оператору")
+    Component(password_hasher, "Password Hasher", "bcrypt/Argon2", "Хеширование и проверка паролей")
+    Component(token_manager, "Token Manager", "JWT Library", "Создание и валидация JWT токенов")
+    Component(two_factor, "2FA Service", "Python", "Генерация и проверка SMS-кодов")
+    Component(sms_adapter, "SMS Adapter", "Twilio/SMS Client", "Отправка SMS через внешний шлюз")
+    Component(messenger_adapter, "Messenger Adapter", "Telegram/WhatsApp API", "Интеграция с мессенджерами")
+    Component(phone_adapter, "Phone Adapter", "SIP Client", "Инициация звонков")
+    Component(event_publisher, "Event Publisher", "Kafka Producer", "Публикация событий (регистрация, вход)")
+    Component(user_repository, "User Repository", "Django ORM", "Доступ к данным пользователей")
+    Component(chat_repository, "Chat Repository", "Django ORM", "Доступ к истории чатов")
+}
+
+' === Связи: Входящие запросы ===
+Rel(owner, api_gw, "Регистрация, вход, чат", "HTTPS/WSS")
+Rel(customer_service, api_gw, "Ответы в чате", "HTTPS/WSS")
+Rel(api_gw, auth_controller, "Маршрут /api/auth/*", "HTTP")
+Rel(api_gw, profile_controller, "Маршрут /api/users/*", "HTTP")
+Rel(api_gw, chat_controller, "WebSocket /ws/chat/*", "WSS")
+
+' === Связи: Внутри микросервиса ===
+Rel(auth_controller, registration_service, "Передает данные регистрации", "method call")
+Rel(auth_controller, authentication_service, "Передает данные для входа", "method call")
+Rel(profile_controller, profile_service, "Передает запросы профиля", "method call")
+Rel(chat_controller, chat_service, "Передает сообщения", "async")
+
+Rel(registration_service, password_hasher, "Хеширует пароль", "method call")
+Rel(authentication_service, password_hasher, "Проверяет пароль", "method call")
+Rel(authentication_service, token_manager, "Создает токен", "method call")
+Rel(registration_service, two_factor, "Генерирует код", "method call")
+Rel(authentication_service, two_factor, "Проверяет код", "method call")
+
+Rel(registration_service, user_repository, "Сохраняет нового пользователя", "ORM")
+Rel(authentication_service, user_repository, "Получает данные пользователя", "ORM")
+Rel(profile_service, user_repository, "Читает/обновляет профиль", "ORM")
+Rel(chat_service, chat_repository, "Сохраняет/читает историю", "ORM")
+
+Rel(two_factor, sms_adapter, "Отправляет код", "method call")
+Rel(sms_adapter, sms, "Отправляет SMS", "HTTPS")
+Rel(chat_service, messenger_adapter, "Отправляет сообщение в мессенджер", "method call")
+Rel(messenger_adapter, messenger, "Отправляет/получает сообщения", "Webhook/API")
+Rel(chat_service, phone_adapter, "Инициирует звонок", "method call")
+Rel(phone_adapter, phone_system, "Совершает звонок", "SIP")
+
+Rel(registration_service, event_publisher, "Публикует событие регистрации", "async")
+Rel(authentication_service, event_publisher, "Публикует событие входа", "async")
+Rel(event_publisher, message_queue, "Отправляет события", "Kafka Protocol")
+
+Rel(user_repository, users_db, "CRUD операции", "PostgreSQL Protocol")
+Rel(chat_repository, users_db, "CRUD операции", "PostgreSQL Protocol")
+
+@enduml
