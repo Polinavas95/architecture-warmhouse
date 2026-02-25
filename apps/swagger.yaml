@@ -1,0 +1,887 @@
+openapi: 3.0.0
+info:
+  title: Тёплый дом API
+  description: API для экосистемы умного дома
+  version: 1.0.0
+  contact:
+    name: Команда Тёплый дом
+    email: tatsuchan@mail.ru
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT токен, полученный при аутентификации
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "Ошибка: устройство не найдено"
+        details:
+          type: object
+          additionalProperties: true
+          example:
+            code: "FAILED"
+            timestamp: "2026-02-25T10:30:00Z"
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Операция выполнена успешно"
+        data:
+          type: object
+          additionalProperties: true
+
+    # Микросервис отопления
+    TemperatureRegulationRequest:
+      type: object
+      required:
+        - temperature
+      properties:
+        temperature:
+          type: number
+          format: float
+          minimum: 5
+          maximum: 35
+          example: 22.5
+          description: "Целевая температура в градусах Цельсия"
+
+    DeviceInfo:
+      type: object
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        device_type:
+          type: string
+          enum: [THERMOSTAT, BOILER, HEATER]
+        room:
+          type: string
+          example: "living_room"
+        status:
+          type: string
+          enum: [ON, OFF, ERROR, MAINTENANCE, OFFLINE]
+        current_temperature:
+          type: number
+          format: float
+        target_temperature:
+          type: number
+          format: float
+        firmware_version:
+          type: string
+
+    # Микросервис света
+    LightOperationRequest:
+      type: object
+      properties:
+        brightness:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 75
+          description: "Яркость лампы (0-100%)"
+
+    # Микросервис заказов
+    OrderItem:
+      type: object
+      required:
+        - product_id
+        - quantity
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+        price:
+          type: number
+          format: float
+
+    CartItem:
+      type: object
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantity:
+          type: integer
+        price:
+          type: number
+          format: float
+
+    PaymentRequest:
+      type: object
+      required:
+        - payment_method
+      properties:
+        payment_method:
+          type: string
+          enum: [card, sbp, cash]
+        card_number:
+          type: string
+          pattern: "^[0-9]{16}$"
+
+    # Микросервис пользователей
+    UserRegisterRequest:
+      type: object
+      required:
+        - phone
+        - password
+        - first_name
+        - last_name
+      properties:
+        phone:
+          type: string
+          pattern: "^\\+7[0-9]{10}$"
+          example: "+79161234567"
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          format: password
+        first_name:
+          type: string
+        last_name:
+          type: string
+
+    UserLoginRequest:
+      type: object
+      required:
+        - phone
+        - password
+      properties:
+        phone:
+          type: string
+        password:
+          type: string
+          format: password
+
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIs..."
+        user:
+          type: object
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            phone:
+              type: string
+            first_name:
+              type: string
+            last_name:
+              type: string
+
+    # Микросервис администрирования
+    DeviceStatistic:
+      type: object
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        device_type:
+          type: string
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              field:
+                type: string
+              old_value:
+                type: string
+              new_value:
+                type: string
+        last_seen:
+          type: string
+          format: date-time
+
+    SystemMetric:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "http_requests_total"
+        value:
+          type: number
+        labels:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+
+    # Микросервис контента
+    ContentRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        type:
+          type: string
+          enum: [news, ad, video]
+        image_url:
+          type: string
+          format: uri
+        target_devices:
+          type: array
+          items:
+            type: string
+
+  parameters:
+    TemperatureUnit:
+      name: temperature_unit
+      in: path
+      required: true
+      schema:
+        type: number
+        format: float
+        minimum: 5
+        maximum: 35
+        example: 22.5
+      description: "Величина температуры в Цельсиях"
+
+    OwnerIdParam:
+      name: owner_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: "UUID владельца дома"
+
+    DeviceIdParam:
+      name: device_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: "UUID устройства"
+
+    UserIdParam:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    OrderIdParam:
+      name: order_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    CartIdParam:
+      name: cart_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    ContentIdParam:
+      name: content_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+security:
+  - BearerAuth: []
+
+paths:
+  /heat/{owner_id}/{device_id}/register:
+    post:
+      tags:
+        - Отопление
+      summary: Регистрация устройства отопления
+      description: Добавляет новое устройство отопления в систему
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device_type:
+                  type: string
+                  enum: [THERMOSTAT, BOILER, HEATER]
+                room:
+                  type: string
+                firmware_version:
+                  type: string
+      responses:
+        '200':
+          description: Устройство успешно зарегистрировано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Не авторизован
+        '409':
+          description: Устройство уже зарегистрировано
+
+  /heat/{owner_id}/{device_id}/delete:
+    delete:
+      tags:
+        - Отопление
+      summary: Удаление устройства отопления
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Устройство удалено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          description: Устройство не найдено
+
+  /heat/{owner_id}/{device_id}/regulation:
+    post:
+      tags:
+        - Отопление
+      summary: Изменение температуры
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+        - $ref: '#/components/parameters/TemperatureUnit'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemperatureRegulationRequest'
+      responses:
+        '200':
+          description: Температура изменена
+
+  /heat/{owner_id}/{device_id}/connect:
+    post:
+      tags:
+        - Отопление
+      summary: Подключить отопление (включить питание)
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Питание включено
+
+  /heat/{owner_id}/{device_id}/disconnect:
+    post:
+      tags:
+        - Отопление
+      summary: Отключить отопление (выключить питание)
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Питание выключено
+
+  /heat/{owner_id}/{device_id}/on:
+    post:
+      tags:
+        - Отопление
+      summary: Включить нагрев
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Нагрев включен
+
+  /heat/{owner_id}/{device_id}/off:
+    post:
+      tags:
+        - Отопление
+      summary: Выключить нагрев
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Нагрев выключен
+
+  # ========== МИКРОСЕРВИС СВЕТА ==========
+  /light/{owner_id}/{device_id}/register:
+    post:
+      tags:
+        - Освещение
+      summary: Регистрация устройства освещения
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room:
+                  type: string
+                bulb_type:
+                  type: string
+      responses:
+        '200':
+          description: Устройство зарегистрировано
+
+  /light/{owner_id}/{device_id}/delete:
+    delete:
+      tags:
+        - Освещение
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Устройство удалено
+
+  /light/{owner_id}/{device_id}/connect:
+    post:
+      tags:
+        - Освещение
+      summary: Подключить освещение (включить питание)
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Лампа подключена
+
+  /light/{owner_id}/{device_id}/disconnect:
+    post:
+      tags:
+        - Освещение
+      summary: Отключить освещение (выключить питание)
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Лампа отключена
+
+  /light/{owner_id}/{device_id}/on:
+    post:
+      tags:
+        - Освещение
+      summary: Включить лампу
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Лампа включена
+
+  /light/{owner_id}/{device_id}/off:
+    post:
+      tags:
+        - Освещение
+      summary: Выключить лампу
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Лампа выключена
+
+  /gates/{owner_id}/{device_id}/register:
+    post:
+      tags:
+        - Ворота
+      summary: Регистрация ворот
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Ворота зарегистрированы
+
+  /gates/{owner_id}/{device_id}/delete:
+    delete:
+      tags:
+        - Ворота
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Ворота удалены
+
+  /gates/{owner_id}/{device_id}/connect:
+    post:
+      tags:
+        - Ворота
+      summary: Подключить ворота (включить питание)
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Ворота подключены
+
+  /gates/{owner_id}/{device_id}/disconnect:
+    post:
+      tags:
+        - Ворота
+      summary: Отключить ворота (выключить питание)
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Ворота отключены
+  
+  /gates/{owner_id}/{device_id}/open:
+    post:
+      tags:
+        - Ворота
+      summary: Открыть ворота
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Ворота открываются
+
+  /gates/{owner_id}/{device_id}/close:
+    post:
+      tags:
+        - Ворота
+      summary: Закрыть ворота
+      parameters:
+        - $ref: '#/components/parameters/OwnerIdParam'
+        - $ref: '#/components/parameters/DeviceIdParam'
+      responses:
+        '200':
+          description: Ворота закрываются
+
+  /system/{owner_id}/statistics:
+    get:
+      tags:
+        - Администрирование
+      summary: Статистика по устройствам
+      parameters:
+        - name: owner_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Статистика получена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeviceStatistic'
+
+  /system/metrics:
+    get:
+      tags:
+        - Администрирование
+      summary: Метрики системы
+      responses:
+        '200':
+          description: Метрики получены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SystemMetric'
+
+  /order/{order_type}/{order_id}/register:
+    post:
+      tags:
+        - Заказы
+      summary: Регистрация товара
+      parameters:
+        - name: order_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [product, kit, part]
+        - $ref: '#/components/parameters/OrderIdParam'
+      responses:
+        '200':
+          description: Товар зарегистрирован
+
+  /order/{order_type}/{order_id}/delete:
+    delete:
+      tags:
+        - Заказы
+      parameters:
+        - name: order_type
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/OrderIdParam'
+      responses:
+        '200':
+          description: Товар удален
+
+  /order/{order_type}/{order_id}/add:
+    post:
+      tags:
+        - Заказы
+      summary: Добавление товара в корзину
+      parameters:
+        - name: order_type
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/OrderIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cart_id:
+                  type: string
+                  format: uuid
+                quantity:
+                  type: integer
+                  default: 1
+      responses:
+        '200':
+          description: Товар добавлен в корзину
+
+  /order/{cart_id}/payment:
+    post:
+      tags:
+        - Заказы
+      summary: Оплата корзины
+      parameters:
+        - $ref: '#/components/parameters/CartIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: Оплата успешна
+        '402':
+          description: Ошибка оплаты
+
+  /order/{cart_id}/delivery:
+    get:
+      tags:
+        - Заказы
+      summary: Статус доставки
+      parameters:
+        - $ref: '#/components/parameters/CartIdParam'
+      responses:
+        '200':
+          description: Информация о доставке
+
+  # ========== МИКРОСЕРВИС ПОЛЬЗОВАТЕЛЕЙ ==========
+  /user/register:
+    post:
+      tags:
+        - Пользователи
+      summary: Регистрация пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+      responses:
+        '201':
+          description: Пользователь зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: Пользователь уже существует
+
+  /user/login:
+    post:
+      tags:
+        - Пользователи
+      summary: Вход в систему
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Неверные учетные данные
+
+  /user/{user_id}/logout:
+    post:
+      tags:
+        - Пользователи
+      summary: Выход из системы
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: Выход выполнен
+
+  /user/{user_id}/profile:
+    get:
+      tags:
+        - Пользователи
+      summary: Получение профиля
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: Профиль пользователя
+
+  /user/{user_id}/profile/update:
+    put:
+      tags:
+        - Пользователи
+      summary: Обновление профиля
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                first_name:
+                  type: string
+                last_name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Профиль обновлен
+
+  # ========== МИКРОСЕРВИС КОНТЕНТА ==========
+  /content/register:
+    post:
+      tags:
+        - Контент
+      summary: Регистрация нового контента
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentRequest'
+      responses:
+        '201':
+          description: Контент создан
+
+  /content/{content_id}/delete:
+    delete:
+      tags:
+        - Контент
+      parameters:
+        - $ref: '#/components/parameters/ContentIdParam'
+      responses:
+        '200':
+          description: Контент удален
+
+  /content/{content_id}/update:
+    put:
+      tags:
+        - Контент
+      parameters:
+        - $ref: '#/components/parameters/ContentIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentRequest'
+      responses:
+        '200':
+          description: Контент обновлен

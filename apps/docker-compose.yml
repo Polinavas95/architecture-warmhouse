@@ -8,13 +8,17 @@ services:
       - ".env"
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sensors"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./smart_home/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - smarthome-network
-
-#  temperature-api:
-  ## тут нужно добавить приложение
 
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -22,9 +26,24 @@ services:
     env_file:
       - ".env"
     ports:
-      - "8080:80"
+      - "8085:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+
+  temperature-api:
+    build:
+      context: ./temperature_api
+      dockerfile: Dockerfile
+    container_name: temperature-api
+    ports:
+      - "8081:8081"
+    env_file:
+      - "./temperature_api/.env"
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - smarthome-network
   app:
     build:
       context: ./smart_home
@@ -45,6 +64,7 @@ services:
 
 volumes:
   postgres_data:
+  pgadmin_data:
 
 networks:
   smarthome-network:
