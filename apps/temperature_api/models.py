@@ -5,11 +5,15 @@ from pydantic import BaseModel
 
 
 class RequestModel(BaseModel):
-    location: str
+    location: str | None = None
     owner_id: UUID
+    sensorID: str | None = None
 
     @classmethod
-    def as_query(cls,
-                 location: str = Query(..., description="Город или локация"),
-                 owner_id: UUID = Query(..., description="ID владельца")):
-        return cls(location=location, owner_id=owner_id)
+    def as_query(
+            cls,
+            owner_id: str = Query(..., description="Идентификатор названия комнаты"),
+            sensorID: str | None = Query(..., description="Идентификатор названия комнаты"),
+            location: str | None = Query(..., description="Название комнаты"),
+    ):
+        return cls(location=location, owner_id=owner_id, sensorID=sensorID)
