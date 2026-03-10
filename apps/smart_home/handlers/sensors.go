@@ -125,6 +125,7 @@ func (h *SensorHandler) GetTemperatureByLocation(c *gin.Context) {
 		"status":      tempData.Status,
 		"timestamp":   tempData.Timestamp,
 		"description": tempData.Description,
+		"sensor_id":   tempData.SensorID,
 	})
 }
 

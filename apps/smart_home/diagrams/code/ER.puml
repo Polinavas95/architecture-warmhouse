@@ -1,0 +1,342 @@
+@startuml
+title ER-диаграмма экосистемы "Тёплый дом"
+
+' === Микросервис пользователей (Postgres) ===
+rectangle "Микросервис пользователей" {
+
+    entity users {
+        * user_id : UUID <<PK>>
+        --
+        phone : VARCHAR(15) <<UK>>
+        email : VARCHAR(100) <<UK>>
+        password_hash : VARCHAR(255)
+        first_name : VARCHAR(50)
+        last_name : VARCHAR(50)
+        role : VARCHAR(20)
+        is_active : BOOLEAN
+        two_factor_enabled : BOOLEAN
+        created_at : TIMESTAMP
+        last_login : TIMESTAMP
+        updated_at : TIMESTAMP
+    }
+
+    entity user_devices {
+        * user_device_id : UUID <<PK>>
+        --
+        * user_id : UUID <<FK>>
+        device_type : VARCHAR(50)
+        device_name : VARCHAR(100)
+        serial_number : VARCHAR(100) <<UK>>
+        purchase_date : DATE
+        warranty_until : DATE
+        is_active : BOOLEAN
+        added_at : TIMESTAMP
+    }
+
+    entity chat_messages {
+        * message_id : UUID <<PK>>
+        --
+        * user_id : UUID <<FK>>
+        operator_id : UUID
+        message_text : TEXT
+        subject_of_appeal : VARCHAR(10)
+        status : VARCHAR(20)
+        attachments : FILE
+        created_at : TIMESTAMP
+    }
+
+    entity notifications {
+        * notification_id : UUID <<PK>>
+        --
+        * user_id : UUID <<FK>>
+        type : VARCHAR(10)
+        title : VARCHAR(200)
+        content : TEXT
+        is_read : BOOLEAN
+        sent_at : TIMESTAMP
+        read_at : TIMESTAMP
+    }
+}
+
+' === микросервис управления устройствами (Redis) ===
+rectangle "Микросервис устройств" {
+
+    entity device_states {
+        * device_key : VARCHAR(100) <<PK>>
+        --
+        device_id : UUID
+        owner_id : UUID
+        device_type : VARCHAR(20)
+        current_temperature : DECIMAL(5,2) <<NULL>>
+        target_temperature : DECIMAL(5,2) <<NULL>>
+        brightness : INTEGER <<NULL>>
+        gate_status : VARCHAR(10) <<NULL>>  // open, closed, opening, closing
+        status : VARCHAR(10)  // on, off, error, maintenance, offline
+        last_seen : TIMESTAMP
+        battery_level : INTEGER <<NULL>>
+        signal_strength : INTEGER <<NULL>>
+        ttl : INTEGER
+    }
+
+    entity device_commands {
+        * command_key : VARCHAR(100) <<PK>>
+        --
+        command_id : UUID
+        device_id : UUID
+        command_type : VARCHAR(20)
+        parameters : TEXT
+        status : VARCHAR(10)
+        created_at : TIMESTAMP
+        ttl : INTEGER
+    }
+
+    entity recent_readings {
+        * reading_key : VARCHAR(100) <<PK>>
+        --
+        device_id : UUID
+        temperature : DECIMAL(5,2)
+        timestamp : TIMESTAMP
+        is_anomaly : BOOLEAN
+        ttl : INTEGER
+    }
+}
+
+' === микросервис администрирования (ClickHouse) ===
+rectangle "Микросервис администрирования" {
+
+    entity system_logs {
+        * log_id : UUID
+        --
+        timestamp : TIMESTAMP
+        service_name : VARCHAR(50)
+        log_level : VARCHAR(10)
+        message : TEXT
+        device_id : UUID
+        user_id : UUID
+        command_id : UUID
+        ip_address : VARCHAR(45)
+        user_agent : TEXT
+        duration_ms : INTEGER
+        status_code : INTEGER
+        additional_data : TEXT
+    }
+
+    entity device_metrics {
+        * metric_id : UUID
+        --
+        timestamp : TIMESTAMP
+        device_id : UUID
+        metric_type : VARCHAR(50)
+        value : FLOAT
+        unit : VARCHAR(10)
+        labels : TEXT
+    }
+
+    entity system_health {
+        * check_id : UUID
+        --
+        timestamp : TIMESTAMP
+        service_name : VARCHAR(50)
+        instance_id : VARCHAR(50)
+        status : VARCHAR(10)
+        connections_count : INTEGER
+        response_time_ms : INTEGER
+    }
+
+    entity diagnostics {
+        * diag_id : UUID
+        --
+        timestamp : TIMESTAMP
+        device_id : UUID
+        test_type : VARCHAR(50)
+        test_result : TEXT
+        success : BOOLEAN
+        error_message : TEXT <<NULL>>
+    }
+}
+
+' === микросервис магазина (MongoDB) ===
+rectangle "Микросервис магазина" {
+
+    entity products {
+        * product_id : VARCHAR(50) <<PK>>
+        --
+        sku : VARCHAR(50) <<UK>> //артикул товара
+        name : VARCHAR(200)
+        description : TEXT
+        category : VARCHAR(100)
+        price : DECIMAL(10,2)
+        discount_price : DECIMAL(10,2)
+        in_stock : INTEGER
+        attributes : TEXT
+        images : TEXT
+        videos : TEXT
+        instructions : TEXT
+        compatible_devices : TEXT
+        created_at : TIMESTAMP
+        updated_at : TIMESTAMP
+    }
+
+    entity categories {
+        * category_id : VARCHAR(50) <<PK>>
+        --
+        parent_id: VARCHAR(50) <<PK>>
+        name : VARCHAR(100)
+        level : INTEGER
+        path : VARCHAR(255)
+        image : VARCHAR(255)
+        sort_order : INTEGER
+    }
+
+    entity carts {
+        * cart_id : VARCHAR(50) <<PK>>
+        --
+        user_id : UUID
+        items : TEXT
+        total : DECIMAL(10,2)
+        expires_at : TIMESTAMP
+        updated_at : TIMESTAMP
+    }
+}
+
+' === микросервис заказов (PostgreSQL) ===
+rectangle "Микросервис заказов" {
+
+    entity orders {
+        * order_id : UUID <<PK>>
+        --
+        user_id : UUID
+        order_number : VARCHAR(50) <<UK>>
+        status : VARCHAR(20)
+        total_amount : DECIMAL(10,2)
+        shipping_address : TEXT
+        payment_method : VARCHAR(50)
+        payment_status : VARCHAR(20)
+        created_at : TIMESTAMP
+        updated_at : TIMESTAMP
+        completed_at : TIMESTAMP
+    }
+
+    entity order_items {
+        * order_item_id : UUID <<PK>>
+        --
+        * order_id : UUID <<FK>>
+        product_id : UUID
+        product_name : VARCHAR(200)
+        quantity : INTEGER
+        unit_price : DECIMAL(10,2)
+        total_price : DECIMAL(10,2)
+    }
+
+    entity payments {
+        * payment_id : UUID <<PK>>
+        --
+        * order_id : UUID <<FK>>
+        payment_system : VARCHAR(50)
+        transaction_id : VARCHAR(100)
+        amount : DECIMAL(10,2)
+        status : VARCHAR(20)
+        error_message : TEXT <<NULL>>
+        created_at : TIMESTAMP
+        completed_at : TIMESTAMP
+    }
+
+    entity shipments {
+        * shipment_id : UUID <<PK>>
+        --
+        * order_id : UUID <<FK>>
+        carrier : VARCHAR(50)
+        tracking_number : VARCHAR(100)
+        status : VARCHAR(20)
+        estimated_delivery : DATE
+        delivered_at : TIMESTAMP
+        shipping_cost : DECIMAL(10,2)
+    }
+}
+
+' === микросервис контента (MongoDB) ===
+rectangle "Микросервис контента" {
+
+    entity news {
+        * news_id : VARCHAR(50) <<PK>>
+        --
+        title : VARCHAR(200)
+        summary : TEXT
+        content : TEXT
+        images : VARCHAR(255)
+        author : VARCHAR(100)
+        tags : TEXT
+        is_published : BOOLEAN
+        published_at : TIMESTAMP
+        created_at : TIMESTAMP
+        updated_at : TIMESTAMP
+        views_count : INTEGER
+    }
+
+    entity videos {
+        * video_id : VARCHAR(50) <<PK>>
+        --
+        title : VARCHAR(200)
+        description : TEXT
+        url : VARCHAR(255)
+        duration : INTEGER
+        device_type : TEXT
+        difficulty : VARCHAR(20)
+        steps : TEXT
+        created_at : TIMESTAMP
+        views_count : INTEGER
+    }
+
+    entity advertisements {
+        * ad_id : VARCHAR(50) <<PK>>
+        --
+        partner_id : VARCHAR(50)
+        title : VARCHAR(200)
+        content : TEXT
+        image : VARCHAR(255)
+        target_url : VARCHAR(255)
+        target_device_types : TEXT
+        target_user_segments : TEXT
+        start_date : DATE
+        end_date : DATE
+        impressions : INTEGER
+        clicks : INTEGER
+        budget : DECIMAL(10,2)
+    }
+}
+
+
+' Связи в микросервисе пользователей
+users ||--o{ user_devices : "владеет"
+users ||--o{ chat_messages : "отправляет"
+users ||--o{ notifications : "получает"
+
+' Связи в микросервисе заказов
+orders ||--o{ order_items : "содержит"
+orders ||--o{ payments : "оплачивается"
+orders ||--o{ shipments : "доставляется"
+
+' Связи в категориях
+categories ||--o{ categories : "родитель-потомок"
+
+' Примечания о связях между микросервисами
+note top of orders
+  orders.user_id ссылается на users.user_id
+  order_items.product_id = products.product_id
+end note
+
+note top of device_states
+  device_states.owner_id = users.user_id
+  device_states.device_id = user_devices.serial_number
+end note
+
+note top of system_logs
+  system_logs.user_id = users.user_id
+  system_logs.device_id = device_states.device_id
+end note
+
+note top of carts
+  carts.user_id = users.user_id
+end note
+
+@enduml

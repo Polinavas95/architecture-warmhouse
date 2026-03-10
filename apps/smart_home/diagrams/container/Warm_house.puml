@@ -1,0 +1,131 @@
+@startuml
+!include <C4/C4_Container>
+!include <C4/C4_Context>
+
+title Экосистема умных домов "Тёплый дом" (Диаграмма контейнеров)
+
+' === Внешние пользователи ===
+Person(owner, "Владелец дома", "Житель дома, управляет устройствами, покупает наборы")
+Person(admin, "Системный администратор", "Мониторинг, диагностика, регистрация приборов")
+
+' === Внешние системы ===
+System_Ext(messenger, "Мессенджер", "Канал для чата с поддержкой")
+System_Ext(partners, "API партнеров", "Рекламные материалы и новости")
+System_Ext(sms, "SMS-шлюз", "Уведомления и коды")
+System_Ext(payment, "Платежная система", "Обработка платежей")
+System_Ext(phone_system, "Телефонная станция", "Звонки в поддержку")
+
+' === Устройства пользователя ===
+System_Ext(heater, "Устройства отопления", "Датчики-термостаты, котлы")
+System_Ext(lamps, "Устройства освещения", "Умные лампы")
+System_Ext(gates, "Приводы ворот", "Автоматические контроллеры")
+
+' === Основной домен ===
+Boundary(core_domain, "Основной домен: Управление умным домом") {
+
+    ' === Клиентские приложения ===
+    Container(web_app, "Web-приложение", "Django", "Личный кабинет владельца")
+    Container(mobile_app, "Мобильное приложение", "Flutter/React Native", "Управление домом со смартфона")
+    Container(api_gw, "API Gateway", "Nginx/Kong", "Единая точка входа, маршрутизация, установка лимитов")
+
+    ' === Микросервисы управления устройствами ===
+    Boundary(device_services, "Поддомен: Управление устройствами") {
+        Container(heating_svc, "Микросервис отопления", "Python/FastAPI", "Переключение отопления, регулировка температуры, мониторинг")
+        Container(light_svc, "Микросервис света", "Python/FastAPI", "Управление освещением, мониторинг потребления")
+        Container(gates_svc, "Микросервис ворот", "Python/FastAPI", "Открытие/закрытие ворот")
+
+        ContainerDb(heating_db, "БД отопления", "Redis (Key-Value)", "Хранение состояния по ID клиента/договора")
+        ContainerDb(light_db, "БД освещения", "Redis (Key-Value)", "Хранение состояния по ID клиента/договора")
+        ContainerDb(gates_db, "БД ворот", "Redis (Key-Value)", "Хранение состояния по ID клиента/договора")
+    }
+
+    ' === Поддомен ===
+    Boundary(user_services, "Поддомен: Пользователи и контент") {
+        Container(users_svc, "Микросервис пользователей", "Go/Django", "Регистрация, аутентификация, чат с поддержкой")
+        Container(content_svc, "Микросервис контента", "Python/FastAPI", "Новости, реклама, видеоинструкции")
+
+        ContainerDb(users_db, "БД пользователей", "PostgreSQL", "Безопасное хранение учетных записей, история чатов, покупки устройств")
+        ContainerDb(content_db, "БД контента", "MongoDB", "Новости, метаданные видео, неструктурированный контент")
+    }
+}
+
+' === Домен: Магазин и интеграции ===
+Boundary(supporting_domain, "Поддерживающий домен: Магазин и интеграции") {
+
+    ' === Поддомен магазина ===
+    Boundary(shop_services, "Поддомен: Магазин товаров") {
+        Container(shop_svc, "Микросервис магазина", "Node.js/Python", "Каталог товаров, оформление заказов")
+        Container(orders_svc, "Микросервис заказов", "Python/FastAPI", "Сборка и доставка товаров")
+
+        ContainerDb(shop_db, "БД магазина", "MongoDB", "Каталог товаров с разными описаниями")
+        ContainerDb(orders_db, "БД заказов", "PostgreSQL", "Транзакционные данные, консистентность")
+    }
+
+    ' === Интеграции с внешними сервисами ===
+    Rel(shop_svc, payment, "Обработка платежей", "HTTPS")
+    Rel(orders_svc, payment, "Возвраты и списания", "HTTPS")
+}
+
+' === Домен: Внутренние операции ===
+Boundary(generic_domain, "Общий домен: Администрирование и мониторинг") {
+    Container(admin_svc, "Микросервис администрирования", "Python/Java", "Сбор логов, диагностика, первичное подключение")
+    ContainerDb(admin_db, "БД администрирования", "ClickHouse", "Логи, метрики, аналитика для диагностики")
+
+    ' === Очереди сообщений для асинхронного взаимодействия ===
+    Container(message_queue, "Message Queue", "Kafka/RabbitMQ", "Асинхронная передача событий между сервисами")
+}
+
+' === Связи: Клиентские приложения ===
+Rel(owner, web_app, "Использует", "HTTPS")
+Rel(owner, mobile_app, "Использует", "HTTPS/WSS")
+Rel(admin, admin_svc, "Управляет через админ-панель", "HTTPS")
+
+Rel(web_app, api_gw, "API запросы", "JSON/HTTPS")
+Rel(mobile_app, api_gw, "API запросы", "JSON/HTTPS")
+
+' === Связи: API Gateway → Микросервисы ===
+Rel(api_gw, heating_svc, "Маршрут /api/heating/*", "gRPC/HTTP")
+Rel(api_gw, light_svc, "Маршрут /api/light/*", "gRPC/HTTP")
+Rel(api_gw, gates_svc, "Маршрут /api/gates/*", "gRPC/HTTP")
+Rel(api_gw, users_svc, "Маршрут /api/users/*", "gRPC/HTTP")
+Rel(api_gw, content_svc, "Маршрут /api/content/*", "gRPC/HTTP")
+Rel(api_gw, shop_svc, "Маршрут /api/shop/*", "gRPC/HTTP")
+Rel(api_gw, orders_svc, "Маршрут /api/orders/*", "gRPC/HTTP")
+Rel(api_gw, admin_svc, "Маршрут /api/admin/* (для админа)", "HTTPS")
+
+' === Связи: Микросервисы → Базы данных ===
+Rel(heating_svc, heating_db, "Читает/пишет состояние", "Redis Protocol")
+Rel(light_svc, light_db, "Читает/пишет состояние", "Redis Protocol")
+Rel(gates_svc, gates_db, "Читает/пишет состояние", "Redis Protocol")
+Rel(users_svc, users_db, "CRUD операции", "JDBC")
+Rel(content_svc, content_db, "CRUD операции", "MongoDB Wire Protocol")
+Rel(shop_svc, shop_db, "CRUD операции", "MongoDB Wire Protocol")
+Rel(orders_svc, orders_db, "Транзакции", "JDBC")
+Rel(admin_svc, admin_db, "Запись/чтение логов", "ClickHouse Protocol")
+
+' === Связи: Микросервисы ←→ Устройства ===
+Rel(heating_svc, heater, "Команды и телеметрия", "MQTT")
+Rel(light_svc, lamps, "Команды и мониторинг", "MQTT")
+Rel(gates_svc, gates, "Команды открытия/закрытия", "MQTT")
+
+' === Связи: Интеграция с внешними сервисами ===
+Rel(users_svc, sms, "Отправка SMS", "HTTPS")
+Rel(users_svc, messenger, "Чат поддержки", "Webhook/API")
+Rel(users_svc, phone_system, "Инициация звонка", "SIP")
+Rel(content_svc, partners, "Получение рекламы", "HTTPS/REST")
+
+' === Связи: Межсервисное взаимодействие ===
+Rel(users_svc, message_queue, "Публикует события (регистрация, вход)", "Async")
+Rel(orders_svc, message_queue, "Публикует события (новый заказ)", "Async")
+Rel(admin_svc, message_queue, "Подписывается на все события", "Async")
+Rel(heating_svc, message_queue, "Публикует события (авария, отключение)", "Async")
+
+' === Связи: Администрирование ===
+Rel(admin_svc, heating_svc, "Сбор метрик и диагностика", "gRPC/HTTP")
+Rel(admin_svc, light_svc, "Сбор метрик и диагностика", "gRPC/HTTP")
+Rel(admin_svc, gates_svc, "Сбор метрик и диагностика", "gRPC/HTTP")
+Rel(admin_svc, users_svc, "Сбор метрик", "gRPC/HTTP")
+Rel(admin_svc, shop_svc, "Сбор метрик", "gRPC/HTTP")
+Rel(admin_svc, orders_svc, "Сбор метрик", "gRPC/HTTP")
+
+@enduml

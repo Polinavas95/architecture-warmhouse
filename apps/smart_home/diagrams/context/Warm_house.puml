@@ -1,0 +1,79 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/RicardoNiepel/C4-PlantUML/master/C4_Context.puml
+!includeurl https://raw.githubusercontent.com/RicardoNiepel/C4-PlantUML/master/C4_Container.puml
+
+title Экосистема умных домов "Тёплый дом" (Диаграмма контекста с доменами)
+
+' === Домен ===
+Boundary(core_domain, "Основной домен: Управление умным домом") {
+
+    ' === Поддомен управления устройствами ===
+    Boundary(subdomain_device, "Поддомен: Управление устройствами") {
+        System(smart_home, "Экосистема Тёплый дом", "Платформа для удаленного управления отоплением, светом, воротами")
+
+        System_Ext(heater, "Устройства отопления", "Датчики-термостаты, котлы")
+        System_Ext(lamps, "Устройства освещения", "Умные лампы")
+        System_Ext(gates, "Приводы ворот", "Автоматические контроллеры")
+
+        Rel(smart_home, heater, "Управление отоплением", "MQTT")
+        Rel(smart_home, lamps, "Управление освещением", "MQTT")
+        Rel(smart_home, gates, "Управление воротами", "MQTT")
+    }
+
+    Boundary(subdomain_user, "Поддомен: Пользовательское взаимодействие") {
+        Person(owner, "Владелец дома", "Житель дома, управляет устройствами, покупает наборы")
+        Rel(owner, smart_home, "Взаимодействует с системой", "HTTPS/Мобильное приложение")
+    }
+}
+
+' === Домен (supporting domain) ===
+Boundary(supporting_domain, "Поддерживающий домен: Интеграции") {
+    Boundary(subdomain_integration, "Поддомен: Внешние интеграции") {
+        System_Ext(sms, "SMS-шлюз", "Уведомления и коды")
+        System_Ext(phone_system, "Телефонная станция", "Звонки в поддержку")
+        System_Ext(payment, "Платежная система", "Обработка платежей")
+        System_Ext(messenger, "Мессенджер", "Канал для чата с поддержкой")
+        System_Ext(partners, "API партнеров", "Рекламные материалы и новости")
+
+        Rel(smart_home, sms, "Отправляет SMS", "HTTPS")
+        Rel(smart_home, phone_system, "Инициирует звонки", "SIP")
+        Rel(smart_home, payment, "Обрабатывает платежи", "HTTPS")
+        Rel(smart_home, messenger, "Общается в чате", "Webhook/API")
+        Rel(smart_home, partners, "Получает контент", "HTTPS/REST")
+    }
+}
+
+Boundary(generic_domain, "Общий домен: Внутренние операции") {
+
+    Boundary(subdomain_dev, "Поддомен: Разработка") {
+        System_Ext(gitlab, "GitLab/Bitbucket", "Хранение кода, CI/CD")
+        Person(developer, "Разработчик", "Пишет код")
+        Person(qa, "Тестировщик", "Тестирует")
+
+        Rel(developer, gitlab, "Работает с кодом", "HTTPS")
+        Rel(qa, gitlab, "Создает баг-репорты", "HTTPS")
+        Rel(qa, smart_home, "Тестирует функционал", "HTTPS/API")
+    }
+
+    Boundary(subdomain_ops, "Поддомен: Эксплуатация") {
+        System_Ext(monitoring, "Система мониторинга", "Grafana/Prometheus/Kibana")
+        System_Ext(crm, "CRM система", "Управление клиентами")
+        Person(admin, "Системный администратор", "Мониторинг, диагностика, регистрация приборов")
+        Person(customer_service, "Обслуживание клиентов", "Поддержка пользователей")
+
+        Rel(admin, monitoring, "Мониторит метрики", "HTTPS")
+        Rel(admin, smart_home, "Диагностирует проблемы", "Админ-панель")
+        Rel(customer_service, crm, "Ведет историю", "HTTPS")
+        Rel(customer_service, messenger, "Отвечает клиентам", "Webhook/API")
+    }
+
+    Boundary(subdomain_marketing, "Поддомен: Маркетинг") {
+        System_Ext(analytics, "Аналитическая платформа", "Анализ логов")
+        Person(marketing_person, "Продажа и маркетинг", "Продвижение комплектов")
+
+        Rel(marketing_person, analytics, "Изучает аналитику", "HTTPS")
+        Rel(analytics, smart_home, "Собирает данные", "ETL/API")
+    }
+}
+
+@enduml
